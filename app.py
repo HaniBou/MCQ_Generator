@@ -1,8 +1,7 @@
 import streamlit as st
 from langchain.llms import Ollama
-
-from utils import save_uploaded_file, load_and_process_pdf , initialize_llm_chain
-
+from utils import save_uploaded_file, load_and_process_pdf, initialize_llm_chain, reformat_cleaned_text_to_dict
+import json
 # -----------------------------
 # Initialize Application
 # -----------------------------
@@ -26,8 +25,7 @@ with st.sidebar:
         "Microsoft Phi 3 Mini (3.8B)"
     ]
     model_choice = st.selectbox("Select an LLM model:", MODEL_OPTIONS)
-    
-    # Initialize LLM based on the selected model
+
     MODEL_MAP = {
         "Ollama (Llama3.2)": "llama3.2:latest",
         "Google Gemma2 (2B)": "gemma2:2b",
@@ -43,32 +41,105 @@ with st.sidebar:
             new_pdf_name = save_uploaded_file(uploaded_file)
         st.success(f"Uploaded `{new_pdf_name}`. Now, you can generate a quiz from this PDF.")
 
-# CHAINS SETUP
+# Initialize Chain
 quiz_chain = initialize_llm_chain(model_choice)
-
 
 # -----------------------------
 # Main Application Logic
 # -----------------------------
-if uploaded_file:  # Vérifie si un fichier a été téléchargé
-    PDF_FILE = new_pdf_name  # Utilise directement le nom du fichier téléchargé
+if uploaded_file:  # Check if a file has been uploaded
+    PDF_FILE = new_pdf_name
     st.write(f"**📘 Selected PDF:** `{new_pdf_name}`")
     context = load_and_process_pdf(PDF_FILE)
 
-    # -----------------------------
-    # Quiz Generation Task
-    # -----------------------------
+    # Quiz Generation
     st.divider()
     st.header("📚 Generate a Quiz (Multiple-Choice Questions)")
     num_questions = st.number_input("Number of questions:", min_value=1, max_value=20, value=5)
 
     if st.button("Generate Quiz"):
         with st.spinner("Generating quiz..."):
-            response = quiz_chain.run(context=context, num_questions=num_questions)
+            try:
+                RESPONSE_JSON = json.load(open("Response.json", "r", encoding="utf-8"))
+            except FileNotFoundError:
+                st.error("The 'Response.json' file was not found.")
+                RESPONSE_JSON = {}
 
-        st.success("✅ Your Quiz:")
-        st.write(response.strip())
+            raw_response = quiz_chain.run(
+                context=context,
+                num_questions=num_questions,
+                response_json=json.dumps(RESPONSE_JSON)
+            )
+            
+           # print(raw_response[0])
 
+            # Désérialisation
+            if isinstance(raw_response, str):
+                try:
+                    raw_response = raw_response.strip()
+                    if raw_response.startswith("{") and raw_response.endswith("}"):
+                        raw_response = json.loads(raw_response)  # Désérialisation standard
+                    else:
+                        # Si le JSON est mal structuré (par ex. concaténé avec des virgules)
+                        raw_response = "{" + raw_response.strip(", ") + "}"
+                        raw_response = json.loads(raw_response)
+                except json.JSONDecodeError as e:
+                    st.error(f"Failed to parse the response into JSON: {e}")
+                    raw_response = {}
+
+            # Debugging la sortie brute et transformée
+            #st.write("Raw response after processing:", raw_response)
+
+            quiz_data = reformat_cleaned_text_to_dict(raw_response, num_questions)
+            #st.write("Quiz data after processing:", quiz_data)  # Debugging data après traitement
+            st.session_state.quiz_data = quiz_data
+
+            st.success("✅ Your Quiz has been generated!")
+
+            # Display the JSON
+            #st.json(quiz_data)
+
+
+    # -----------------------------
+    # Quiz Interaction Section
+    # -----------------------------
+    st.divider()
+    st.header("🖋️ Answer the Quiz")
+
+    if st.session_state.get("quiz_data"):
+        quiz_data = st.session_state["quiz_data"]  # Get the generated quiz data
+        st.write("### Answer the questions below:")
+
+        user_answers = []
+        for question_id, question_data in quiz_data.items():
+            if "error" in question_data:
+                st.warning(f"Question {question_id} is malformed: {question_data['raw_data']}")
+                continue
+
+            question_text = question_data["mcq"]
+            choices = question_data["options"]
+
+            st.write(f"**Question {question_id}:** {question_text}")
+            user_answer = st.radio(
+                f"Choose your answer for question {question_id}:",
+                options=[f"A) {choices['a']}", f"B) {choices['b']}", f"C) {choices['c']}", f"D) {choices['d']}"],
+                key=f"q_{question_id}"
+            )
+            user_answers.append({
+                "question_id": question_id,
+                "user_answer": user_answer[0],  # Extract only the last character (A/B/C/D)
+                "correct_answer": question_data["correct"]
+            })
+
+        # Check Answers
+        if st.button("Check My Answers"):
+            score = sum(1 for answer in user_answers if answer["user_answer"].lower() == answer["correct_answer"].lower())
+            st.success(f"Your score is {score}/{len(user_answers)}.")
+            st.write("### Answer Details:")
+            for answer in user_answers:
+                st.write(f"- **Question {answer['question_id']}:** {quiz_data[answer['question_id']]['mcq']}")
+                st.write(f"  - Your Answer: {answer['user_answer']}")
+                st.write(f"  - Correct Answer: {answer['correct_answer']}")
 else:
     st.warning("⚠️ Please upload a PDF to generate a quiz.")
 
