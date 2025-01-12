@@ -51,6 +51,7 @@ if uploaded_file:  # Check if a file has been uploaded
     PDF_FILE = new_pdf_name
     st.write(f"**📘 Selected PDF:** `{new_pdf_name}`")
     context = load_and_process_pdf(PDF_FILE)
+    
 
     # Quiz Generation
     st.divider()
@@ -71,22 +72,36 @@ if uploaded_file:  # Check if a file has been uploaded
                 response_json=json.dumps(RESPONSE_JSON)
             )
             
-           # print(raw_response[0])
+            print(raw_response)
 
             # Désérialisation
             if isinstance(raw_response, str):
                 try:
                     raw_response = raw_response.strip()
+
+                    # Supprimer tout texte avant le JSON en cherchant le premier '{'
+                    json_start = raw_response.find("{")
+                    if json_start != -1:
+                        raw_response = raw_response[json_start:]
+                    print(raw_response)
+                    # Vérifier si le texte restant est bien un JSON
                     if raw_response.startswith("{") and raw_response.endswith("}"):
+                        print("In the IF")
                         raw_response = json.loads(raw_response)  # Désérialisation standard
+                        
                     else:
+                        print("In the ELSE")
+                        
                         # Si le JSON est mal structuré (par ex. concaténé avec des virgules)
                         raw_response = "{" + raw_response.strip(", ") + "}"
                         raw_response = json.loads(raw_response)
+
                 except json.JSONDecodeError as e:
                     st.error(f"Failed to parse the response into JSON: {e}")
                     raw_response = {}
-
+            else:
+                st.error("The response is not a string.")
+                
             # Debugging la sortie brute et transformée
             #st.write("Raw response after processing:", raw_response)
 

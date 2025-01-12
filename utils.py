@@ -8,20 +8,28 @@ import json
 
 quiz_generation_prompt = PromptTemplate(
     input_variables=["context", "num_questions"],
-    template="""Generate exactly {num_questions} multiple-choice questions (MCQs) based on the provided context.
-    Each question should include:
-    - A question statement.
-    - Four answer options (A, B, C, D), where only one is correct.
-    - Indicate the correct option at the end in the format "Réponse correcte: X", where X is the correct option.
-    - Make sure to format your response like RESPONSE_JSON below and use it as a guide. \
+    template="""
+            Text{context}
+            You are an expert MCQ maker. Given the above text, it is your job to \
+            create a quiz of {num_questions} multiple choice questions avout the given text.
+            Make sute the questions are not repeated and check all the questions to be confirmed the text as well. \
+            Make sure to format your response like the json RESPONSE_JSON below and use it as a guide. \
+            Ensure to make {num_questions} MCQs \
+            Ensure the JSON is valid and strictly formatted \
+            Do not include any additional text outside the JSON. \
+            ### RESPONSE_JSON
+            {response_json} 
+            
+            [
+            "1": ["mcq": "...", "options": ["a": "...", "b": "...", "c": "...", "d": "..."], "correct": "..."],
+            "2": [...],
+            ...
+            ]
+            
+            en remplacant les crochets par des accolades comme pour un json valide
+            
 
-    ### RESPONSE_JSON
-    {response_json}
-
-    Context: {context}
-
-    Questions:
-    """
+"""
 )
 
 def initialize_llm_chain(model_choice, prompt=quiz_generation_prompt):
